@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Beach Baby Dash 3D</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; background-color: #87CEEB; user-select: none; -webkit-user-select: none; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+    </style>
+</head>
+<body class="relative w-screen h-screen">
+    <div id="game-container" class="absolute inset-0 w-full h-full z-0"></div>
+    <div class="absolute inset-0 flex flex-col justify-between p-4 z-10 pointer-events-none">
+        <div class="flex justify-between items-center w-full mt-2">
+            <div class="bg-white/80 backdrop-blur-md px-4 py-2 rounded-2xl shadow-lg border border-white/40">
+                <span class="text-xs font-bold text-amber-800 uppercase tracking-wider block">Distance</span>
+                <span id="score-val" class="text-2xl font-black text-amber-950">0m</span>
+            </div>
+            <div class="bg-white/60 backdrop-blur-md px-4 py-2 rounded-2xl shadow-lg">
+                <span class="text-[10px] font-bold text-gray-600 uppercase tracking-wider block">Best</span>
+                <span id="highscore-val" class="text-lg font-bold text-gray-800">0m</span>
+            </div>
+        </div>
+        <div class="flex-grow flex items-center justify-center">
+            <div id="start-screen" class="bg-white/95 backdrop-blur-lg p-6 rounded-3xl shadow-2xl text-center max-w-sm w-full mx-4 border-4 border-amber-400 pointer-events-auto">
+                <h1 class="text-3xl font-black text-amber-600 mb-2">BEACH BABY DASH 3D</h1>
+                <p class="text-sm text-amber-900 font-medium mb-6">Tap to jump over the pinchy crabs crawling along the shoreline!</p>
+                <div class="flex justify-center mb-6 animate-bounce"><span class="text-4xl">👶</span><span class="text-2xl text-amber-400">🏃‍♂️...🦀</span></div>
+                <button id="start-btn" class="w-full bg-amber-500 text-white font-black py-4 px-6 rounded-2xl text-xl shadow-lg uppercase">Start Running!</button>
+            </div>
+            <div id="gameover-screen" class="hidden bg-white/95 backdrop-blur-lg p-6 rounded-3xl shadow-2xl text-center max-w-sm w-full mx-4 border-4 border-red-500 pointer-events-auto">
+                <h2 class="text-3xl font-black text-red-600 mb-1">OUCH! 🦀</h2>
+                <p class="text-sm text-red-900 font-semibold mb-2">A crab pinched you!</p>
+                <div class="my-4 bg-red-50 py-3 rounded-2xl"><span class="text-xs text-red-400 block font-bold uppercase">You Traveled</span><span id="final-score" class="text-4xl font-black text-red-950">0m</span></div>
+                <button id="restart-btn" class="w-full bg-red-500 text-white font-black py-4 px-6 rounded-2xl text-xl shadow-lg uppercase">Try Again</button>
+            </div>
+        </div>
+        <div id="touch-guide" class="text-center pb-4 animate-pulse"><span class="bg-black/40 text-white/90 text-xs font-bold px-4 py-2 rounded-full Data-blur-sm">👉 TAP ANYWHERE TO JUMP 👈</span></div>
+    </div>
+    <script>
+        let gameActive = false, gameOver = false, score = 0, highScore = localStorage.getItem('baby_high_score') || 0;
+        document.getElementById('highscore-val').textContent = highScore + "m";
+        let speed = 0.25; const maxSpeed = 0.6, gravity = -0.015; let jumpForce = 0.32, babyVelocityY = 0, isGrounded = true;
+        let crabs = [], particles = [], backgroundDecor = []; let scene, camera, renderer, baby, sandPlatform, seaPlatform;
+        const scoreVal = document.getElementById('score-val'), highscoreVal = document.getElementById('highscore-val'), finalScoreVal = document.getElementById('final-score'), startScreen = document.getElementById('start-screen'), gameoverScreen = document.getElementById('gameover-screen'), touchGuide = document.getElementById('touch-guide'), startBtn = document.getElementById('start-btn'), restartBtn = document.getElementById('restart-btn');
+        function init() {
+            const container = document.getElementById('game-container');
+            scene = new THREE.Scene(); scene.background = new THREE.Color(0x87CEEB); scene.fog = new THREE.FogExp2(0x87CEEB, 0.015);
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000); camera.position.set(0, 4.5, -9); camera.lookAt(0, 1.5, 15);
+            renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); renderer.shadowMap.enabled = true; container.appendChild(renderer.domElement);
+            scene.add(new THREE.AmbientLight(0xffffff, 0.65)); const sunLight = new THREE.DirectionalLight(0xffffff, 0.8); sunLight.position.set(10, 25, -10); scene.add(sunLight);
+            buildEnvironment(); buildBaby();
+            window.addEventListener('resize', onWindowResize, false); window.addEventListener('touchstart', handleInput, false); window.addEventListener('mousedown', handleInput, false);
+            window.addEventListener('keydown', (e) => { if(e.code === 'Space') handleInput(); });
+            startBtn.addEventListener('click', (e) => { e.stopPropagation(); startGame(); }); restartBtn.addEventListener('click', (e) => { e.stopPropagation(); restartGame(); });
+            animate();
+        }
+        function buildEnvironment() {
+            sandPlatform = new THREE.Mesh(new THREE.BoxGeometry(12, 2, 120), new THREE.MeshStandardMaterial({ color: 0xEEDC82, roughness: 0.9 })); sandPlatform.position.set(0, -1, 40); scene.add(sandPlatform);
+            seaPlatform = new THREE.Mesh(new THREE.BoxGeometry(40, 1.8, 120), new THREE.MeshStandardMaterial({ color: 0x1CA3EC, roughness: 0.2, transparent: true, opacity: 0.85 })); seaPlatform.position.set(-23, -0.9, 40); scene.add(seaPlatform);
+            for (let i = 0; i < 5; i++) { createIsland(35 + (i * 25)); }
+        }
+        function createIsland(zPos) {
+            const group = new THREE.Group();
+            const mound = new THREE.Mesh(new THREE.ConeGeometry(8, 3, 8), new THREE.MeshStandardMaterial({ color: 0xDFD070 })); mound.position.y = -0.5; group.add(mound);
+            const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.4, 4, 5), new THREE.MeshStandardMaterial({ color: 0x8B4513 })); trunk.position.set(0, 2, 0); trunk.rotation.z = 0.15; group.add(trunk);
+            for(let j=0; j<4; j++) { const leaf = new THREE.Mesh(new THREE.BoxGeometry(3, 0.1, 1), new THREE.MeshStandardMaterial({ color: 0x228B22 })); leaf.position.set(0, 4, 0); leaf.rotation.y = (Math.PI/2)*j; leaf.rotation.z = 0.2; group.add(leaf); }
+            group.position.set(22 + Math.random()*5, -0.5, zPos); scene.add(group); backgroundDecor.push(group);
+        }
+        function buildBaby() {
+            baby = new THREE.Group();
+            const head = new THREE.Mesh(new THREE.SphereGeometry(0.45, 10, 10), new THREE.MeshStandardMaterial({ color: 0xFFD1DC })); head.position.y = 1.35; baby.add(head);
+            const hair = new THREE.Mesh(new THREE.SphereGeometry(0.15, 6, 6), new THREE.MeshStandardMaterial({ color: 0xFFD700 })); hair.position.set(0, 1.75, -0.05); baby.add(hair);
+            const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.45, 0.5), new THREE.MeshStandardMaterial({ color: 0xFFD1DC })); body.position.y = 0.95; baby.add(body);
+            const diaper = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.35, 0.54), new THREE.MeshStandardMaterial({ color: 0xFFFFFF })); diaper.position.y = 0.65; baby.add(diaper);
+            baby.leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.4, 0.18), new THREE.MeshStandardMaterial({ color: 0xFFD1DC })); baby.leftLeg.position.set(-0.18, 0.3, 0); baby.add(baby.leftLeg);
+            baby.rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.4, 0.18), new THREE.MeshStandardMaterial({ color: 0xFFD1DC })); baby.rightLeg.position.set(0.18, 0.3, 0); baby.add(baby.rightLeg);
+            baby.leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.4, 0.15), new THREE.MeshStandardMaterial({ color: 0xFFD1DC })); baby.leftArm.position.set(-0.38, 1.0, 0); baby.add(baby.leftArm);
+            baby.rightArm = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.4, 0.15), new THREE.MeshStandardMaterial({ color: 0xFFD1DC })); baby.rightArm.position.set(0.38, 1.0, 0); baby.add(baby.rightArm);
+            baby.scale.set(1.1, 1.1, 1.1); scene.add(baby);
+        }
+        function spawnCrab() {
+            const crab = new THREE.Group();
+            const body = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.4, 0.6), new THREE.MeshStandardMaterial({ color: 0xFF2200 })); body.position.y = 0.2; crab.add(body);
+            const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), new THREE.MeshStandardMaterial({ color: 0xFFFFFF })); eyeL.position.set(-0.2, 0.45, -0.2); crab.add(eyeL);
+            const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), new THREE.MeshStandardMaterial({ color: 0xFFFFFF })); eyeR.position.set(0.2, 0.45, -0.2); crab.add(eyeR);
+            const clawGeo = new THREE.BoxGeometry(0.2, 0.2, 0.3);
+            crab.clawL = new THREE.Mesh(clawGeo, new THREE.MeshStandardMaterial({ color: 0xFF2200 })); crab.clawL.position.set(-0.55, 0.25, -0.2); crab.add(crab.clawL);
+            crab.clawR = new THREE.Mesh(clawGeo, new THREE.MeshStandardMaterial({ color: 0xFF2200 })); crab.clawR.position.set(0.55, 0.25, -0.2); crab.add(crab.clawR);
+            const lanes = [-1.8, 0, 1.8]; crab.position.set(lanes[Math.floor(Math.random() * lanes.length)], 0, 50);
+            scene.add(crab); crabs.push(crab);
+        }
+        function spawnDust() {
+            if (!isGrounded || !gameActive || gameOver) return;
+            const p = new THREE.Mesh(new THREE.SphereGeometry(0.08 + Math.random()*0.1, 4, 4), new THREE.MeshStandardMaterial({ color: 0xFFF8DC, transparent: true, opacity: 0.8 }));
+            p.position.set(baby.position.x + (Math.random()-0.5)*0.4, 0.1, baby.position.z - 0.3);
+            p.vx = (Math.random()-0.5)*0.05; p.vy = Math.random()*0.05; p.vz = -speed - (Math.random()*0.05); p.life = 1.0;
+            scene.add(p); particles.push(p);
+        }
+        function handleInput(e) { if (e) e.preventDefault(); if (!gameActive || gameOver) return; if (isGrounded) { babyVelocityY = jumpForce; isGrounded = false; spawnLandingDust(); } }
+        function spawnLandingDust() {
+            for(let i=0; i<6; i++) {
+                const p = new THREE.Mesh(new THREE.SphereGeometry(0.12, 4, 4), new THREE.MeshStandardMaterial({ color: 0xEEDC82, transparent: true, opacity: 0.9 }));
+                p.position.set(baby.position.x, 0.1, baby.position.z); p.vx = (Math.random()-0.5)*0.1; p.vy = Math.random()*0.08; p.vz = (Math.random()-0.5)*0.1; p.life = 1.0; scene.add(p); particles.push(p);
+            }
+        }
+        function startGame() { gameActive = true; gameOver = false; startScreen.classList.add('hidden'); score = 0; speed = 0.25; touchGuide.classList.remove('hidden'); }
+        function restartGame() { gameOver = false; gameActive = true; gameoverScreen.classList.add('hidden'); score = 0; speed = 0.25; baby.position.set(0, 0, 0); babyVelocityY = 0; isGrounded = true; crabs.forEach(c => scene.remove(c)); crabs = []; particles.forEach(p => scene.remove(p)); particles = []; }
+        function triggerGameOver() {
+            gameOver = true; gameActive = false;
+            finalScoreVal.textContent = Math.floor(score) + "m";
+            if (Math.floor(score) > highScore) { highScore = Math.floor(score); localStorage.setItem('baby_high_score', highScore); highscoreVal.textContent = highScore + "m"; }
+            gameoverScreen.classList.remove('hidden');
+        }
+        let frameCount = 0;
+        function animate() {
+            requestAnimationFrame(animate);
+            if (gameActive && !gameOver) {
+                frameCount++; score += 0.15; scoreVal.textContent = Math.floor(score) + "m"; speed = Math.min(maxSpeed, 0.25 + (score * 0.0008));
+                if (!isGrounded) { babyVelocityY += gravity; baby.position.y += babyVelocityY; if (baby.position.y <= 0) { baby.position.y = 0; babyVelocityY = 0; isGrounded = true; spawnLandingDust(); } }
+                if (isGrounded) { const runCycle = Date.now() * 0.015; baby.leftLeg.rotation.x = Math.sin(runCycle)*0.8; baby.rightLeg.rotation.x = -Math.sin(runCycle)*0.8; baby.leftArm.rotation.x = -Math.sin(runCycle)*0.6; baby.rightArm.rotation.x = Math.sin(runCycle)*0.6; baby.position.y = Math.abs(Math.sin(runCycle))*0.08; }
+                else { baby.leftLeg.rotation.x = -0.5; baby.rightLeg.rotation.x = 0.3; baby.leftArm.rotation.x = -1.2; baby.rightArm.rotation.x = 1.2; }
+                seaPlatform.position.x = -23 + Math.sin(Date.now() * 0.002) * 1.5;
+                if (frameCount % Math.max(40, Math.floor(100 - speed * 100)) === 0) { spawnCrab(); }
+                for (let i = crabs.length - 1; i >= 0; i--) {
+                    const c = crabs[i]; c.position.z -= speed;
+                    c.clawL.rotation.y = Math.sin(Date.now()*0.02)*0.3; c.clawR.rotation.y = -Math.sin(Date.now()*0.02)*0.3;
+                    if (c.position.z < -10) { scene.remove(c); crabs.splice(i, 1); continue; }
+                    if (Math.abs(baby.position.x - c.position.x) < 0.75 && Math.abs(baby.position.z - c.position.z) < 0.8 && baby.position.y < 0.5) { triggerGameOver(); }
+                }
+                backgroundDecor.forEach(item => { item.position.z -= speed; if (item.position.z < -15) item.position.z = 110 + Math.random()*10; });
+                if (frameCount % 4 === 0) spawnDust();
+            }
+            for (let i = particles.length - 1; i >= 0; i--) { const p = particles[i]; p.position.x += p.vx; p.position.y += p.vy; p.position.z += p.vz; p.life -= 0.02; p.scale.subScalar(0.01); if (p.life <= 0 || p.scale.x <= 0) { scene.remove(p); particles.splice(i, 1); } }
+            renderer.render(scene, camera);
+        }
+        function onWindowResize() { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
+        window.onload = init;
+    </script>
+</body>
+</html>
